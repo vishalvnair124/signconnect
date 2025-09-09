@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Avatar</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #f1f1f1;
+      }
+      #c {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #js-loader {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="js-loader">Loading...</div>
+    <canvas id="c"></canvas>
+
+    <!-- Three.js core -->
+    <script type="module">
+      import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+      import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+
+      (function () {
+        let scene,
+          renderer,
+          camera,
+          model,
+          neck,
+          waist,
+          possibleAnims,
+          mixer,
+          idle;
+        let clock = new THREE.Clock();
+        let currentlyAnimating = false;
+        let raycaster = new THREE.Raycaster();
+        let loaderAnim = document.getElementById("js-loader");
+
+        init();
+
+        function init() {
+          const MODEL_PATH =
+            "https://s3-us-west-2.amazonaws.com/s.cdpn.io/1376484/stacy_lightweight.glb";
+          const canvas = document.querySelector("#c");
+          const backgroundColor = 0xf1f1f1;
+
+          scene = new THREE.Scene();
+          scene.background = new THREE.Color(backgroundColor);
+          scene.fog = new THREE.Fog(backgroundColor, 60, 100);
+
+          renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+          renderer.shadowMap.enabled = true;
+          renderer.setPixelRatio(window.devicePixelRatio);
+          document.body.appendChild(renderer.domElement);
+
+          camera = new THREE.PerspectiveCamera(
+            50,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            1000
+          );
+          camera.position.set(0, -3, 30);
+
+          let stacy_txt = new THREE.TextureLoader().load(
+            "https://s3-us-west-2.amazonaws.com/s.cdpn.io/1376484/stacy.jpg"
+          );
+          stacy_txt.flipY = false;
+
+          const stacy_mtl = new THREE.MeshPhongMaterial({
+            map: stacy_txt,
+            color: 0xffffff,
+            skinning: true,
+          });
+
+          const loader = new GLTFLoader();
+          loader.load(MODEL_PATH, function (gltf) {
+            model = gltf.scene;
+            let fileAnimations = gltf.animations;
+
+            model.traverse((o) => {
+              if (o.isMesh) {
+                o.castShadow = true;
+                o.receiveShadow = true;
+                o.material = stacy_mtl;
+              }
+              if (o.isBone && o.name === "mixamorigNeck") {
+                neck = o;
+              }
+              if (o.isBone && o.name === "mixamorigSpine") {
+                waist = o;
+              }
+            });
+
+            model.scale.set(7, 7, 7);
+            model.position.y = -11;
+            scene.add(model);
+
+            loaderAnim.remove();
+            mixer = new THREE.AnimationMixer(model);
+
+            let clips = fileAnimations.filter((val) => val.name !== "idle");
+            possibleAnims = clips.map((val) => {
+              let clip = THREE.AnimationClip.findByName(clips, val.name);
+              clip.tracks.splice(3, 3);
+              clip.tracks.splice(9, 3);
+              clip = mixer.clipAction(clip);
+              return clip;
+            });
+
+            let idleAnim = THREE.AnimationClip.findByName(
+              fileAnimations,
+              "idle"
+            );
+            idleAnim.tracks.splice(3, 3);
+            idleAnim.tracks.splice(9, 3);
+            idle = mixer.clipAction(idleAnim);
+            idle.play();
+          });
+
+          let hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.61);
+          hemiLight.position.set(0, 50, 0);
+          scene.add(hemiLight);
+
+          let dirLight = new THREE.DirectionalLight(0xffffff, 0.54);
+          dirLight.position.set(-8, 12, 8);
+          dirLight.castShadow = true;
+          dirLight.shadow.mapSize.set(1024, 1024);
+          scene.add(dirLight);
+
+          let floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(5000, 5000),
+            new THREE.MeshPhongMaterial({ color: 0xeeeeee, shininess: 0 })
+          );
+          floor.rotation.x = -Math.PI / 2;
+          floor.receiveShadow = true;
+          floor.position.y = -11;
+          scene.add(floor);
+
+          let sphere = new THREE.Mesh(
+            new THREE.SphereGeometry(8, 32, 32),
+            new THREE.MeshBasicMaterial({ color: 0x9bffaf })
+          );
+          sphere.position.set(-0.25, -2.5, -15);
+          scene.add(sphere);
+        }
+
+        function update() {
+          if (mixer) mixer.update(clock.getDelta());
+          if (resizeRendererToDisplaySize(renderer)) {
+            const canvas = renderer.domElement;
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+          }
+          renderer.render(scene, camera);
+          requestAnimationFrame(update);
+        }
+
+        update();
+
+        function resizeRendererToDisplaySize(renderer) {
+          const canvas = renderer.domElement;
+          const width = window.innerWidth;
+          const height = window.innerHeight;
+          const needResize =
+            canvas.width / window.devicePixelRatio !== width ||
+            canvas.height / window.devicePixelRatio !== height;
+          if (needResize) renderer.setSize(width, height, false);
+          return needResize;
+        }
+      })();
+    </script>
+  </body>
+</html>
