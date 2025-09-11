@@ -36,6 +36,20 @@ let joinAndDisplayLocalStream = async () => {
     .getElementById("video-streams")
     .insertAdjacentHTML("beforeend", player);
   localTracks[1].play(`user-${UID}`);
+  const video = document.createElement("video");
+  video.src = "/static/assets/color-animation.mp4";
+
+  video.loop = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.crossOrigin = "anonymous";
+
+  await video.play(); // wait for it to start playing
+
+  const track = AgoraRTC.createCustomVideoTrack({
+    mediaStreamTrack: video.captureStream().getVideoTracks()[0],
+  });
+
   await client.publish([localTracks[0], localTracks[1]]);
 };
 
