@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Landmark Playback in Three.js</title>
+    <style>
+      body {
+        margin: 0;
+        background: #000;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="landmarks"></canvas>
+
+    <!-- Include Three.js -->
+    <script src="three.min.js"></script>
+    <!-- Include MediaPipe Face Mesh package -->
+    <script src="face_mesh.js"></script>
+
+    <script>
+      (async () => {
+        const FRAME_W = 1200,
+          FRAME_H = 700,
+          SCALE_FACTOR = 1;
+        const canvas = document.getElementById("landmarks");
+
+        // Load the CSV data
+        const csvText = await fetch("howareyou.csv").then((r) => r.text());
+        const rows = csvText
+          .trim()
+          .split("\n")
+          .map((r) => r.split(","));
+        const header = rows.shift();
+        const data = rows.map((r) => {
+          const obj = {};
+          header.forEach((h, i) => (obj[h] = isNaN(r[i]) ? r[i] : +r[i]));
+          return obj;
+        });
+
+        const nFrames = Math.max(...data.map((d) => d.frame));
+        console.log("Total frames:", nFrames);
+
+        // Use MediaPipe's built-in FACE_CONNECTIONS
+        const FACE_CONNECTIONS = window.FACEMESH_TESSELATION || [];
+
+        const HAND_CONNECTIONS = [
+          [0, 1],
+          [1, 2],
+          [2, 3],
+          [3, 4],
+          [0, 5],
+          [5, 6],
+          [6, 7],
+          [7, 8],
+          [5, 9],
+          [9, 10],
+          [10, 11],
+          [11, 12],
+          [9, 13],
+          [13, 14],
+          [14, 15],
+          [15, 16],
+          [13, 17],
+          [17, 18],
+          [18, 19],
+          [19, 20],
+          [0, 17],
+        ];
+
+        const POSE_CONNECTIONS = [
+          [0, 1],
+          [1, 2],
+          [2, 3],
+          [3, 7],
+          [0, 4],
+          [4, 5],
+          [5, 6],
+          [6, 8],
+          [9, 10],
+          [11, 12],
+          [11, 13],
+          [13, 15],
+          [15, 17],
+          [15, 19],
+          [15, 21],
+          [12, 14],
+          [14, 16],
+          [16, 18],
+          [16, 20],
+          [16, 22],
+          [11, 23],
+          [12, 24],
+          [23, 24],
+          [23, 25],
+          [24, 26],
+          [25, 27],
+          [26, 28],
+          [27, 29],
+          [28, 30],
+          [29, 31],
+          [30, 32],
+          [27, 31],
+          [28, 32],
+        ];
+
+        // Setup Three.js
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(
+          0,
+          FRAME_W,
+          FRAME_H,
+          0,
+          -1,
+          1
+        );
+        const renderer = new THREE.WebGLRenderer({ canvas });
+        renderer.setSize(FRAME_W, FRAME_H);
+        const group = new THREE.Group();
+        scene.add(group);
+
+        function drawLandmarks(partData, connections, color, cx, cy) {
+          partData.forEach((row) => {
+            const x = cx + (row.x * FRAME_W - cx) * SCALE_FACTOR;
+            const y = cy + (row.y * FRAME_H - cy) * SCALE_FACTOR;
+            const pt = new THREE.Vector3(x, FRAME_H - y, 0);
+            const circle = new THREE.Mesh(
+              new THREE.CircleGeometry(2, 8),
+              new THREE.MeshBasicMaterial({ color })
+            );
+            circle.position.copy(pt);
+            group.add(circle);
+          });
+
+          connections.forEach(([start, end]) => {
+            const p0 = partData.find((r) => r.index === start);
+            const p1 = partData.find((r) => r.index === end);
+            if (p0 && p1) {
+              const v0 = new THREE.Vector3(
+                cx + (p0.x * FRAME_W - cx) * SCALE_FACTOR,
+                FRAME_H - (cy + (p0.y * FRAME_H - cy) * SCALE_FACTOR),
+                0
+              );
+              const v1 = new THREE.Vector3(
+                cx + (p1.x * FRAME_W - cx) * SCALE_FACTOR,
+                FRAME_H - (cy + (p1.y * FRAME_H - cy) * SCALE_FACTOR),
+                0
+              );
+              const line = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([v0, v1]),
+                new THREE.LineBasicMaterial({ color })
+              );
+              group.add(line);
+            }
+          });
+        }
+
+        let frameIdx = 1;
+        function animate() {
+          group.clear();
+          const frameData = data.filter((d) => d.frame === frameIdx);
+          if (!frameData.length) return;
+
+          const cx =
+            frameData.reduce((s, d) => s + d.x * FRAME_W, 0) / frameData.length;
+          const cy =
+            frameData.reduce((s, d) => s + d.y * FRAME_H, 0) / frameData.length;
+
+          drawLandmarks(
+            frameData.filter((d) => d.part === "face"),
+            FACE_CONNECTIONS,
+            0x00ff00,
+            cx,
+            cy
+          );
+          drawLandmarks(
+            frameData.filter((d) => d.part === "hand" && d.hand_index === 0),
+            HAND_CONNECTIONS,
+            0xff0000,
+            cx,
+            cy
+          );
+          drawLandmarks(
+            frameData.filter((d) => d.part === "hand" && d.hand_index === 1),
+            HAND_CONNECTIONS,
+            0xffa500,
+            cx,
+            cy
+          );
+          drawLandmarks(
+            frameData.filter((d) => d.part === "pose"),
+            POSE_CONNECTIONS,
+            0x800080,
+            cx,
+            cy
+          );
+
+          renderer.render(scene, camera);
+          frameIdx = frameIdx < nFrames ? frameIdx + 1 : 1;
+          requestAnimationFrame(animate);
+        }
+
+        animate();
+      })();
+    </script>
+  </body>
+</html>

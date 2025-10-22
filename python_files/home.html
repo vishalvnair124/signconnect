@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Three.js CSV Playback</title>
+    <style>
+      body {
+        margin: 0;
+        background: black;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script>
+      const w = 1200,
+        h = 700;
+      let scene = new THREE.Scene();
+      let camera = new THREE.OrthographicCamera(0, w, h, 0, -500, 500);
+      let renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(w, h);
+      document.body.appendChild(renderer.domElement);
+
+      let frames = {};
+      let currentFrame = 1,
+        nFrames = 0;
+      let scaleFactor = 1;
+
+      // Example connections (replace with real MediaPipe connections)
+      const faceConnections = [
+        [0, 1],
+        [1, 2],
+      ];
+      const handConnections = [
+        [0, 1],
+        [1, 2],
+      ];
+      const poseConnections = [
+        [0, 1],
+        [1, 2],
+      ];
+
+      // Load CSV
+      Papa.parse("india.csv", {
+        download: true,
+        header: true,
+        dynamicTyping: true,
+        complete: function (results) {
+          let data = results.data.filter((row) => row.frame && row.x && row.y);
+
+          // Group by frame
+          data.forEach((row) => {
+            if (!frames[row.frame]) frames[row.frame] = [];
+            frames[row.frame].push(row);
+          });
+
+          nFrames = Math.max(...Object.keys(frames).map((f) => parseInt(f)));
+          animate();
+        },
+      });
+
+      function drawFrame(frameData) {
+        // Clear old scene
+        while (scene.children.length > 0) scene.remove(scene.children[0]);
+
+        // Calculate center
+        let all_xs = frameData.map((p) => p.x * w);
+        let all_ys = frameData.map((p) => p.y * h);
+        let cx = all_xs.reduce((a, b) => a + b) / all_xs.length;
+        let cy = all_ys.reduce((a, b) => a + b) / all_ys.length;
+
+        function drawPart(partData, connections, colorHex) {
+          if (!partData.length) return;
+          let material = new THREE.LineBasicMaterial({ color: colorHex });
+          let pointMaterial = new THREE.PointsMaterial({
+            color: colorHex,
+            size: 2,
+          });
+          let pointsDict = {};
+
+          partData.forEach((p) => {
+            let x = p.x * w;
+            let y = p.y * h;
+            let xScaled = cx + (x - cx) * scaleFactor;
+            let yScaled = cy + (y - cy) * scaleFactor;
+            pointsDict[p.index] = new THREE.Vector3(xScaled, h - yScaled, 0);
+          });
+
+          // Draw points
+          let pointGeometry = new THREE.BufferGeometry().setFromPoints(
+            Object.values(pointsDict)
+          );
+          scene.add(new THREE.Points(pointGeometry, pointMaterial));
+
+          // Draw lines
+          let linePoints = [];
+          connections.forEach(([s, e]) => {
+            if (pointsDict[s] && pointsDict[e]) {
+              linePoints.push(pointsDict[s], pointsDict[e]);
+            }
+          });
+          let lineGeometry = new THREE.BufferGeometry().setFromPoints(
+            linePoints
+          );
+          scene.add(new THREE.LineSegments(lineGeometry, material));
+        }
+
+        drawPart(
+          frameData.filter((p) => p.part === "face"),
+          faceConnections,
+          0x00ff00
+        );
+        drawPart(
+          frameData.filter((p) => p.part === "hand" && p.hand_index === 0),
+          handConnections,
+          0xff0000
+        );
+        drawPart(
+          frameData.filter((p) => p.part === "hand" && p.hand_index === 1),
+          handConnections,
+          0xff0000
+        );
+        drawPart(
+          frameData.filter((p) => p.part === "pose"),
+          poseConnections,
+          0x0000ff
+        );
+      }
+
+      function animate() {
+        if (frames[currentFrame]) {
+          drawFrame(frames[currentFrame]);
+        }
+        currentFrame++;
+        if (currentFrame > nFrames) currentFrame = 1;
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+    </script>
+  </body>
+</html>

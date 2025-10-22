@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webcam and Mic Capture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #f3f4f6;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 2rem; /* Added padding for smaller screens */
+      }
+      /* A container to hold the canvas */
+      .video-container {
+        position: relative;
+        width: 100%;
+      }
+      /* The canvas element */
+      #webcam-canvas {
+        width: 100%;
+        border-radius: 1rem;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1),
+          0 2px 4px -2px rgb(0 0 0 / 0.1);
+        border-width: 4px;
+        border-color: rgb(229 231 235);
+        aspect-ratio: 16 / 9;
+        background-color: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      class="bg-white shadow-xl rounded-2xl p-8 max-w-6xl w-full text-center"
+    >
+      <h1 class="text-3xl font-bold mb-4 text-gray-800">
+        Webcam & Mic Capture
+      </h1>
+      <p class="text-gray-600 mb-6">
+        Click the button below to start your webcam and microphone stream. The
+        live feed will appear below.
+      </p>
+
+      <div class="video-container">
+        <canvas id="webcam-canvas"></canvas>
+      </div>
+
+      <div
+        class="flex flex-col md:flex-row justify-center space-y-4 md:space-y-0 md:space-x-4 mt-6"
+      >
+        <button
+          id="start-btn"
+          class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-full transition-all duration-300 transform hover:scale-105 shadow-lg"
+        >
+          Start Stream
+        </button>
+        <button
+          id="stop-btn"
+          class="bg-gray-400 hover:bg-gray-500 text-white font-medium py-3 px-6 rounded-full transition-all duration-300 transform hover:scale-105 shadow-lg"
+        >
+          Stop Stream
+        </button>
+      </div>
+
+      <div
+        id="status-message"
+        class="mt-6 text-sm text-red-500 font-medium"
+      ></div>
+    </div>
+
+    <script>
+      const canvas = document.getElementById("webcam-canvas");
+      const ctx = canvas.getContext("2d");
+      const startButton = document.getElementById("start-btn");
+      const stopButton = document.getElementById("stop-btn");
+      const statusMessage = document.getElementById("status-message");
+
+      // A hidden video element to hold the stream source
+      const videoElement = document.createElement("video");
+      videoElement.autoplay = true;
+      videoElement.playsInline = true;
+
+      let currentStream = null;
+      let recognition = null;
+      let currentTranscript = "";
+      let isStreaming = false;
+
+      // Function to display a temporary status message
+      function showStatus(message, isError = false) {
+        statusMessage.textContent = message;
+        statusMessage.className = `mt-6 text-sm font-medium ${
+          isError ? "text-red-500" : "text-green-600"
+        }`;
+      }
+
+      // Function to draw the video frame and text onto the canvas
+      function drawCanvas() {
+        if (
+          isStreaming &&
+          videoElement.readyState === videoElement.HAVE_ENOUGH_DATA
+        ) {
+          // Ensure canvas matches video aspect ratio and size
+          const aspectRatio =
+            videoElement.videoWidth / videoElement.videoHeight;
+          const canvasWidth = canvas.offsetWidth;
+          const canvasHeight = canvasWidth / aspectRatio;
+          canvas.width = videoElement.videoWidth;
+          canvas.height = videoElement.videoHeight;
+          canvas.style.height = `${canvasHeight}px`;
+
+          // Draw the video frame
+          ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+          // Draw the text overlay
+          if (currentTranscript.trim() !== "") {
+            // Set up text styles
+            const fontSize = Math.max(20, Math.min(canvas.height * 0.05, 48)); // Responsive font size
+            ctx.font = `500 ${fontSize}px Inter, sans-serif`;
+            ctx.textAlign = "center";
+
+            // Create a semi-transparent background for the text
+            const padding = 20;
+            const textWidth = ctx.measureText(currentTranscript).width;
+            const rectWidth = textWidth + padding * 2;
+            const rectHeight = fontSize + padding;
+            const rectX = canvas.width / 2 - rectWidth / 2;
+            const rectY = canvas.height - rectHeight - 20;
+
+            ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+            ctx.beginPath();
+            // Use roundRect for pill shape, fallback for older browsers
+            if (ctx.roundRect) {
+              ctx.roundRect(rectX, rectY, rectWidth, rectHeight, 9999);
+            } else {
+              ctx.rect(rectX, rectY, rectWidth, rectHeight);
+            }
+            ctx.fill();
+
+            // Draw the text
+            ctx.fillStyle = "white";
+            ctx.fillText(
+              currentTranscript,
+              canvas.width / 2,
+              canvas.height - 20 - padding / 2
+            );
+          }
+        }
+        requestAnimationFrame(drawCanvas);
+      }
+
+      // Function to start the Speech Recognition service
+      function startSpeechRecognition() {
+        if (!("webkitSpeechRecognition" in window)) {
+          showStatus(
+            "Speech recognition is not supported in this browser.",
+            true
+          );
+          return;
+        }
+
+        recognition = new webkitSpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+
+        recognition.onresult = (event) => {
+          let interimTranscript = "";
+          let finalTranscript = "";
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript;
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+
+          currentTranscript = finalTranscript || interimTranscript;
+        };
+
+        recognition.onend = () => {
+          if (isStreaming) {
+            recognition.start();
+          }
+        };
+
+        recognition.start();
+      }
+
+      startButton.addEventListener("click", async () => {
+        if (isStreaming) {
+          showStatus("Stream is already active.", true);
+          return;
+        }
+
+        const constraints = { video: true, audio: true };
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          currentStream = stream;
+          videoElement.srcObject = stream;
+          isStreaming = true;
+
+          showStatus("Stream started successfully! Now you can speak.");
+          startSpeechRecognition();
+          drawCanvas();
+
+          startButton.disabled = true;
+          startButton.classList.remove("bg-blue-600", "hover:bg-blue-700");
+          startButton.classList.add("bg-gray-400", "cursor-not-allowed");
+          stopButton.disabled = false;
+          stopButton.classList.remove("bg-gray-400", "hover:bg-gray-500");
+          stopButton.classList.add("bg-blue-600", "hover:bg-blue-700");
+        } catch (err) {
+          console.error("Error accessing media devices: ", err);
+          isStreaming = false;
+          if (err.name === "NotAllowedError") {
+            showStatus(
+              "Permission to access the camera and microphone was denied. Please allow access in your browser settings.",
+              true
+            );
+          } else if (err.name === "NotFoundError") {
+            showStatus("No camera or microphone found on this device.", true);
+          } else {
+            showStatus(
+              "An unknown error occurred while accessing the devices.",
+              true
+            );
+          }
+        }
+      });
+
+      stopButton.addEventListener("click", () => {
+        if (currentStream) {
+          currentStream.getTracks().forEach((track) => {
+            track.stop();
+          });
+          videoElement.srcObject = null;
+          currentStream = null;
+          isStreaming = false;
+          showStatus("Stream stopped.");
+
+          if (recognition) {
+            recognition.stop();
+            recognition = null;
+          }
+          currentTranscript = "";
+
+          // Clear the canvas
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          // Redraw a black background
+          ctx.fillStyle = "black";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          startButton.disabled = false;
+          startButton.classList.remove("bg-gray-400", "cursor-not-allowed");
+          startButton.classList.add("bg-blue-600", "hover:bg-blue-700");
+          stopButton.disabled = true;
+          stopButton.classList.remove("bg-blue-600", "hover:bg-blue-700");
+          stopButton.classList.add("bg-gray-400", "cursor-not-allowed");
+        } else {
+          showStatus("No active stream to stop.", true);
+        }
+      });
+
+      stopButton.disabled = true;
+      // Draw a black background initially
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    </script>
+  </body>
+</html>
